@@ -61,6 +61,7 @@ export default function EmiCalculator() {
   const [amount, setAmount] = useState("100000");
   const [down, setDown] = useState("0");
   const [rate, setRate] = useState("8.5");
+  const [rateUnit, setRateUnit] = useState<"yearly" | "monthly">("yearly");
   const [tenure, setTenure] = useState("120");
   const [unit, setUnit] = useState<TenureUnit>("months");
   const [method, setMethod] = useState<RepaymentMethod>("equal-instalment");
@@ -83,6 +84,10 @@ export default function EmiCalculator() {
   const rateField = parseField(rate, LIMITS.rate, "Interest rate", {
     allowZero: true,
   });
+  // The engine works in annual terms; a monthly rate is scaled up so that
+  // dividing by 12 inside `calculateLoan` returns the rate as entered.
+  const annualRate =
+    rateUnit === "monthly" ? rateField.value * 12 : rateField.value;
 
   const tenureLimits = useMemo(
     () =>
@@ -100,12 +105,12 @@ export default function EmiCalculator() {
     if (!isValid) return null;
     return calculateLoan({
       principal: financed,
-      annualRatePercent: rateField.value,
+      annualRatePercent: annualRate,
       tenure: tenureField.value,
       tenureUnit: unit,
       method,
     });
-  }, [isValid, financed, rateField.value, tenureField.value, unit, method]);
+  }, [isValid, financed, annualRate, tenureField.value, unit, method]);
 
   const months = Number.isFinite(tenureField.value)
     ? Math.round(toMonths(tenureField.value, unit))
@@ -124,11 +129,11 @@ export default function EmiCalculator() {
         </p>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.15fr]">
-        <section
-          aria-label="Loan details"
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
+      <section
+        aria-label="Loan details"
+        className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        <div className="grid gap-x-5 sm:grid-cols-2 lg:grid-cols-3">
           <Field
             id="loan-amount"
             label="Total amount"
@@ -136,7 +141,7 @@ export default function EmiCalculator() {
             value={amount}
             onChange={setAmount}
             error={amountField.error}
-            hint="Price of what you are financing, before any down payment"
+            hint="Before any down payment"
           />
 
           <Field
@@ -153,18 +158,16 @@ export default function EmiCalculator() {
             }
           />
 
-          {!amountField.error && !downError && (
-            <div className="mb-5 flex items-baseline justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <span className="text-sm font-medium text-slate-700">
-                Loan amount
-              </span>
-              <span className="text-sm font-semibold tabular-nums text-slate-900">
-                <span className="mr-1 font-normal text-slate-500">NPR</span>
-                {formatAmount(financed)}
-              </span>
-            </div>
-          )}
+          <Readout
+            label="Loan amount"
+            value={
+              !amountField.error && !downError ? formatAmount(financed) : "—"
+            }
+            hint="Financed after down payment"
+          />
+        </div>
 
+        <div className="grid gap-x-5 sm:grid-cols-2">
           <Field
             id="loan-rate"
             label="Loan rate"
@@ -172,7 +175,23 @@ export default function EmiCalculator() {
             value={rate}
             onChange={setRate}
             error={rateField.error}
-            hint="Annual interest rate"
+            hint={
+              rateUnit === "yearly"
+                ? `${(rateField.value / 12).toFixed(3)}% per month`
+                : `${(rateField.value * 12).toFixed(2)}% per year`
+            }
+            trailing={
+              <Segmented
+                legend="Rate period"
+                name="rate-unit"
+                value={rateUnit}
+                onChange={setRateUnit}
+                options={[
+                  { value: "yearly", label: "Per year" },
+                  { value: "monthly", label: "Per month" },
+                ]}
+              />
+            }
           />
 
           <Field
@@ -181,8 +200,12 @@ export default function EmiCalculator() {
             value={tenure}
             onChange={setTenure}
             error={tenureField.error}
-          >
-            <div className="mt-3">
+            hint={
+              months > 0
+                ? `${months} monthly payment${months === 1 ? "" : "s"} · ${formatTenure(months)}`
+                : undefined
+            }
+            trailing={
               <Segmented
                 legend="Tenure unit"
                 name="tenure-unit"
@@ -193,101 +216,88 @@ export default function EmiCalculator() {
                   { value: "years", label: "Years" },
                 ]}
               />
-            </div>
-          </Field>
+            }
+          />
+        </div>
 
-          <fieldset className="mb-5">
-            <legend className="mb-1.5 text-sm font-medium text-slate-700">
-              Repayment method
-            </legend>
-            <div className="space-y-2">
-              {METHODS.map((option) => (
-                <label
-                  key={option.value}
-                  className={`flex cursor-pointer gap-2.5 rounded-lg border p-3 transition-colors ${
-                    method === option.value
-                      ? "border-blue-500 bg-blue-50/60"
-                      : "border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="repayment-method"
-                    value={option.value}
-                    checked={method === option.value}
-                    onChange={() => setMethod(option.value)}
-                    className="mt-0.5 size-4 shrink-0 accent-blue-600"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-900">
-                      {option.label}
-                    </span>
-                    <span className="mt-0.5 block text-xs text-slate-500">
-                      {option.description}
-                    </span>
+        <fieldset>
+          <legend className="mb-1.5 text-sm font-medium text-slate-700">
+            Repayment method
+          </legend>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {METHODS.map((option) => (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer gap-2.5 rounded-lg border p-3 transition-colors ${
+                  method === option.value
+                    ? "border-blue-500 bg-blue-50/60"
+                    : "border-slate-200 hover:border-slate-300"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="repayment-method"
+                  value={option.value}
+                  checked={method === option.value}
+                  onChange={() => setMethod(option.value)}
+                  className="mt-0.5 size-4 shrink-0 accent-blue-600"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">
+                    {option.label}
                   </span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {option.description}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </section>
 
-          {months > 0 && !tenureField.error && (
-            <p className="text-xs text-slate-500">
-              {months} monthly payment{months === 1 ? "" : "s"} ·{" "}
-              {formatTenure(months)}
-            </p>
-          )}
-        </section>
-
-        <section
-          aria-label="Repayment summary"
-          aria-live="polite"
-          className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          {result ? (
-            <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-              <div className="flex-1 space-y-5">
-                <Stat
-                  label={
-                    result.levelPayment === null
-                      ? "First payment"
-                      : isEmi
-                        ? "Loan EMI"
-                        : "Monthly payment"
-                  }
-                  value={formatAmount(result.levelPayment ?? result.firstPayment)}
-                  emphasis
-                  note={
-                    result.levelPayment === null
-                      ? `Falls to NPR ${formatAmount(result.lastPayment)} by month ${result.months}`
-                      : undefined
-                  }
-                />
-                <Stat
-                  label="Total interest payable"
-                  value={formatAmount(result.totalInterest)}
-                  swatch="bg-amber-500"
-                />
-                <Stat
-                  label="Total payment"
-                  value={formatAmount(result.totalPayment)}
-                  swatch="bg-blue-600"
-                  note="Principal + interest"
-                />
-              </div>
-              <SplitDonut
-                principal={financed}
-                interest={result.totalInterest}
-              />
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">
-              Enter a valid loan amount, rate and tenure to see your repayment
-              breakdown.
-            </p>
-          )}
-        </section>
-      </div>
+      <section
+        aria-label="Repayment summary"
+        aria-live="polite"
+        className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      >
+        {result ? (
+          <div className="grid gap-6 sm:grid-cols-3">
+            <Stat
+              label={
+                result.levelPayment === null
+                  ? "First payment"
+                  : isEmi
+                    ? "Loan EMI"
+                    : "Monthly payment"
+              }
+              value={formatAmount(result.levelPayment ?? result.firstPayment)}
+              emphasis
+              note={
+                result.levelPayment === null
+                  ? `Falls to NPR ${formatAmount(result.lastPayment)} by month ${result.months}`
+                  : undefined
+              }
+            />
+            <Stat
+              label="Total interest payable"
+              value={formatAmount(result.totalInterest)}
+              swatch="bg-amber-500"
+            />
+            <Stat
+              label="Total payment"
+              value={formatAmount(result.totalPayment)}
+              swatch="bg-blue-600"
+              note="Principal + interest"
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            Enter a valid loan amount, rate and tenure to see your repayment
+            breakdown.
+          </p>
+        )}
+      </section>
 
       {result && (
         <section className="mt-8" aria-label="Monthly breakdown">
@@ -385,12 +395,12 @@ function Segmented<T extends string>({
   onChange: (next: T) => void;
 }) {
   return (
-    <fieldset className="flex gap-1 rounded-lg bg-slate-100 p-1">
+    <fieldset className="flex shrink-0 items-stretch gap-1 rounded-lg bg-slate-100 p-1">
       <legend className="sr-only">{legend}</legend>
       {options.map((option) => (
         <label
           key={option.value}
-          className={`flex-1 cursor-pointer rounded-md px-3 py-1.5 text-center text-sm font-medium transition-colors ${
+          className={`flex cursor-pointer items-center whitespace-nowrap rounded-md px-3 text-center text-sm font-medium transition-colors ${
             value === option.value
               ? "bg-white text-slate-900 shadow-sm"
               : "text-slate-600 hover:text-slate-900"
@@ -419,7 +429,7 @@ function Field({
   error,
   prefix,
   hint,
-  children,
+  trailing,
 }: {
   id: string;
   label: string;
@@ -428,41 +438,44 @@ function Field({
   error: string | null;
   prefix?: string;
   hint?: string;
-  children?: React.ReactNode;
+  trailing?: React.ReactNode;
 }) {
   const errorId = `${id}-error`;
 
   return (
-    <div className="mb-5 last:mb-0">
+    <div className="mb-5">
       <label htmlFor={id} className="block text-sm font-medium text-slate-700">
         {label}
       </label>
-      <div
-        className={`mt-1.5 flex overflow-hidden rounded-lg border bg-white focus-within:ring-2 ${
-          error
-            ? "border-red-400 focus-within:ring-red-100"
-            : "border-slate-300 focus-within:border-blue-500 focus-within:ring-blue-100"
-        }`}
-      >
-        {prefix && (
-          <span
-            aria-hidden="true"
-            className="flex w-14 items-center justify-center border-r border-slate-200 bg-slate-50 text-sm font-medium text-slate-500"
-          >
-            {prefix}
-          </span>
-        )}
-        <input
-          id={id}
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          className="w-full bg-transparent px-3 py-2.5 text-slate-900 tabular-nums outline-none"
-        />
+      <div className="mt-1.5 flex items-stretch gap-2">
+        <div
+          className={`flex flex-1 overflow-hidden rounded-lg border bg-white focus-within:ring-2 ${
+            error
+              ? "border-red-400 focus-within:ring-red-100"
+              : "border-slate-300 focus-within:border-blue-500 focus-within:ring-blue-100"
+          }`}
+        >
+          {prefix && (
+            <span
+              aria-hidden="true"
+              className="flex w-12 shrink-0 items-center justify-center border-r border-slate-200 bg-slate-50 text-sm font-medium text-slate-500"
+            >
+              {prefix}
+            </span>
+          )}
+          <input
+            id={id}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            className="w-full min-w-0 bg-transparent px-3 py-2.5 text-slate-900 tabular-nums outline-none"
+          />
+        </div>
+        {trailing}
       </div>
       {error ? (
         <p id={errorId} className="mt-1.5 text-xs text-red-600">
@@ -471,7 +484,35 @@ function Field({
       ) : (
         hint && <p className="mt-1.5 text-xs text-slate-500">{hint}</p>
       )}
-      {children}
+    </div>
+  );
+}
+
+/** A computed value shown in the same shape as an input, so it lines up. */
+function Readout({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div className="mb-5">
+      <span className="block text-sm font-medium text-slate-700">{label}</span>
+      <div className="mt-1.5 flex rounded-lg border border-slate-200 bg-slate-50">
+        <span
+          aria-hidden="true"
+          className="flex w-12 shrink-0 items-center justify-center border-r border-slate-200 text-sm font-medium text-slate-500"
+        >
+          NPR
+        </span>
+        <span className="w-full px-3 py-2.5 font-semibold tabular-nums text-slate-900">
+          {value}
+        </span>
+      </div>
+      {hint && <p className="mt-1.5 text-xs text-slate-500">{hint}</p>}
     </div>
   );
 }
@@ -502,73 +543,13 @@ function Stat({
       </div>
       <p
         className={`mt-0.5 tabular-nums text-slate-900 ${
-          emphasis ? "text-3xl font-semibold" : "text-xl font-medium"
+          emphasis ? "text-3xl font-semibold" : "text-2xl font-medium"
         }`}
       >
         <span className="mr-1 text-sm font-normal text-slate-500">NPR</span>
         {value}
       </p>
-      {note && <p className="text-xs text-slate-500">{note}</p>}
-    </div>
-  );
-}
-
-function SplitDonut({
-  principal,
-  interest,
-}: {
-  principal: number;
-  interest: number;
-}) {
-  const total = principal + interest;
-  const share = total > 0 ? principal / total : 1;
-  const radius = 52;
-  const circumference = 2 * Math.PI * radius;
-
-  return (
-    <div className="flex shrink-0 justify-center">
-      <svg
-        viewBox="0 0 140 140"
-        className="size-36"
-        role="img"
-        aria-label={`Principal is ${Math.round(share * 100)}% of the total payment, interest is ${Math.round((1 - share) * 100)}%`}
-      >
-        {/* Interest fills the full ring; principal is drawn over it. */}
-        <circle
-          cx="70"
-          cy="70"
-          r={radius}
-          fill="none"
-          strokeWidth="20"
-          className="stroke-amber-500"
-        />
-        <circle
-          cx="70"
-          cy="70"
-          r={radius}
-          fill="none"
-          strokeWidth="20"
-          className="stroke-blue-600"
-          strokeDasharray={`${circumference * share} ${circumference}`}
-          transform="rotate(-90 70 70)"
-        />
-        <text
-          x="70"
-          y="66"
-          textAnchor="middle"
-          className="fill-slate-500 text-[11px]"
-        >
-          Principal
-        </text>
-        <text
-          x="70"
-          y="84"
-          textAnchor="middle"
-          className="fill-slate-900 text-lg font-semibold"
-        >
-          {Math.round(share * 100)}%
-        </text>
-      </svg>
+      {note && <p className="mt-0.5 text-xs text-slate-500">{note}</p>}
     </div>
   );
 }
