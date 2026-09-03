@@ -10,6 +10,31 @@ import {
 } from "@/app/lib/emi";
 import { formatAmount, formatRupees, formatTenure } from "@/app/lib/format";
 
+const METHODS: {
+  value: RepaymentMethod;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "equal-instalment",
+    label: "Equal instalment (EMI)",
+    description:
+      "Same total payment every month; interest on the balance you still owe.",
+  },
+  {
+    value: "equal-principal",
+    label: "Equal principal",
+    description:
+      "Principal split evenly; interest on the balance you still owe, so payments shrink.",
+  },
+  {
+    value: "instalment-interest",
+    label: "Interest on instalment",
+    description:
+      "Principal split evenly; interest charged on that monthly slice rather than the balance.",
+  },
+];
+
 type Parsed = { value: number; error: string | null };
 
 function parseField(
@@ -171,28 +196,40 @@ export default function EmiCalculator() {
             </div>
           </Field>
 
-          <div className="mb-5">
-            <span className="block text-sm font-medium text-slate-700">
+          <fieldset className="mb-5">
+            <legend className="mb-1.5 text-sm font-medium text-slate-700">
               Repayment method
-            </span>
-            <div className="mt-1.5">
-              <Segmented
-                legend="Repayment method"
-                name="repayment-method"
-                value={method}
-                onChange={setMethod}
-                options={[
-                  { value: "equal-instalment", label: "Equal instalment" },
-                  { value: "equal-principal", label: "Equal principal" },
-                ]}
-              />
+            </legend>
+            <div className="space-y-2">
+              {METHODS.map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex cursor-pointer gap-2.5 rounded-lg border p-3 transition-colors ${
+                    method === option.value
+                      ? "border-blue-500 bg-blue-50/60"
+                      : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="repayment-method"
+                    value={option.value}
+                    checked={method === option.value}
+                    onChange={() => setMethod(option.value)}
+                    className="mt-0.5 size-4 shrink-0 accent-blue-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-slate-900">
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      {option.description}
+                    </span>
+                  </span>
+                </label>
+              ))}
             </div>
-            <p className="mt-1.5 text-xs text-slate-500">
-              {isEmi
-                ? "Same total payment every month (EMI)."
-                : "Same principal every month; interest is charged on the balance still owed, so payments shrink."}
-            </p>
-          </div>
+          </fieldset>
 
           {months > 0 && !tenureField.error && (
             <p className="text-xs text-slate-500">
@@ -211,13 +248,19 @@ export default function EmiCalculator() {
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
               <div className="flex-1 space-y-5">
                 <Stat
-                  label={isEmi ? "Loan EMI" : "First payment"}
-                  value={formatAmount(result.firstPayment)}
+                  label={
+                    result.levelPayment === null
+                      ? "First payment"
+                      : isEmi
+                        ? "Loan EMI"
+                        : "Monthly payment"
+                  }
+                  value={formatAmount(result.levelPayment ?? result.firstPayment)}
                   emphasis
                   note={
-                    isEmi
-                      ? undefined
-                      : `Falls to NPR ${formatAmount(result.lastPayment)} by month ${result.months}`
+                    result.levelPayment === null
+                      ? `Falls to NPR ${formatAmount(result.lastPayment)} by month ${result.months}`
+                      : undefined
                   }
                 />
                 <Stat
@@ -254,7 +297,9 @@ export default function EmiCalculator() {
           <p className="mt-1 mb-4 text-sm text-slate-600">
             {isEmi
               ? "Every payment is the same; the principal share grows as the interest share falls."
-              : `You repay NPR ${formatAmount(financed / result.months)} of principal each month, plus interest on the balance still outstanding.`}{" "}
+              : method === "equal-principal"
+                ? `You repay NPR ${formatAmount(financed / result.months)} of principal each month, plus interest on the balance still outstanding.`
+                : `You repay NPR ${formatAmount(financed / result.months)} of principal each month, and interest is charged on that instalment rather than the outstanding balance.`}{" "}
             Amounts are rounded to the nearest rupee.
           </p>
 

@@ -7,8 +7,15 @@ export type TenureUnit = "months" | "years";
  * - `equal-principal`: the principal is split evenly across the term and
  *   interest is charged on whatever is still outstanding, so payments start
  *   high and shrink. Cheaper overall, but front-loaded.
+ * - `instalment-interest`: the principal is split evenly and interest is
+ *   charged on that monthly slice rather than the outstanding balance, so
+ *   every payment is identical. Note that this makes the total interest
+ *   independent of the term — see `calculateLoan`.
  */
-export type RepaymentMethod = "equal-instalment" | "equal-principal";
+export type RepaymentMethod =
+  | "equal-instalment"
+  | "equal-principal"
+  | "instalment-interest";
 
 export type LoanInput = {
   /** Amount actually financed, in NPR. */
@@ -36,8 +43,8 @@ export type ScheduleRow = {
 export type LoanResult = {
   method: RepaymentMethod;
   months: number;
-  /** The fixed instalment — only meaningful when payments don't vary. */
-  emi: number | null;
+  /** The fixed payment when every payment is identical; null when they vary. */
+  levelPayment: number | null;
   firstPayment: number;
   lastPayment: number;
   totalPayment: number;
@@ -87,20 +94,23 @@ export function calculateLoan({
   const months = Math.round(toMonths(tenure, tenureUnit));
   const monthlyRate = annualRatePercent / 100 / 12;
   const isEmi = method === "equal-instalment";
+  const onInstalment = method === "instalment-interest";
 
   const instalment = isEmi
     ? monthlyInstalment(principal, annualRatePercent, months)
     : 0;
   const principalPerMonth = principal / months;
+  // Charged on the fixed principal slice, so it is the same every month.
+  const instalmentInterest = principalPerMonth * monthlyRate;
 
   const schedule: ScheduleRow[] = [];
   let balance = principal;
   let interestPaid = 0;
 
   for (let month = 1; month <= months; month++) {
-    // Interest always accrues on the balance still outstanding. Only the
-    // principal repaid differs between the two methods.
-    const interest = balance * monthlyRate;
+    // Interest normally accrues on the balance still outstanding; the
+    // `instalment-interest` method charges it on the fixed slice instead.
+    const interest = onInstalment ? instalmentInterest : balance * monthlyRate;
     const isLast = month === months;
     // The final payment settles whatever is left, absorbing the fractional
     // residue that accumulates over the schedule.
@@ -129,7 +139,11 @@ export function calculateLoan({
   return {
     method,
     months,
-    emi: isEmi ? round2(instalment) : null,
+    levelPayment: isEmi
+      ? round2(instalment)
+      : onInstalment
+        ? round2(principalPerMonth + instalmentInterest)
+        : null,
     firstPayment: round2(schedule[0].payment),
     lastPayment: round2(schedule[schedule.length - 1].payment),
     totalPayment: round2(principal + totalInterest),
